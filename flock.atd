@@ -1,0 +1,3 @@
+type t = { pid:string;
+       	   acquisition_dt:string;
+	   path:string }
