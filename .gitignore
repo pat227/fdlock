@@ -4,3 +4,7 @@
 *o
 *cmx
 *.out
+*_t.mli
+*_t.ml
+*_j.mli
+*_j.ml

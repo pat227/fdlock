@@ -20,14 +20,14 @@ different OS's and mounts across networks and file systems.
 open Core.Std
 module Flock : sig 
   type t
-  val create string -> t
-  val acquire t -> bool
-  val release t -> unit
+  val create: string -> t
+  val acquire: t -> bool
+  val release: t -> unit
 end = struct
-  type t = { pid:string; acquired_dt:Core.Std.Time.t; path:string};;
+  type t = { pid:int; acquired_dt:Core.Std.Time.t; path:string};;
   let idendtt t1 t2 =
-    if (((String.compare t1.pid t2.pid) <>0) ||
-	  ((String.compare t1.acquired_dt t2.acquired_dt) <>0) ||
+    if ((t1.pid <> t2.pid) ||
+	  ((Time.compare t1.acquired_dt t2.acquired_dt) <>0) ||
 	    ((String.compare t1.path t2.path) <>0)) then
       false
     else
@@ -71,15 +71,14 @@ cover these:
      *)
 
   (*internal use only*)
-  type lock { path:string; status:lock_status }
-  let create apath =
-    { path:apath; status:Unlocked }
+  type lock = { path:string; status:lock_status };;
+  let create apath = { path=apath; status=Unlocked };;
   let acquire alockstruct =
     let open Unix in
     let open Flock_j in
-    let newt = { pid:thepid; acquired_dt:"serializets"; path:alockstruct.apath } in
+    let thepid = getpid () in
+    let newt = { pid=(Core.Std.Pid.to_int(thepid)); acquired_dt=(Time.now ()); path=alockstruct.path } in
     let f fd =
-      let thepid = getpid () in
       let serialized = string_of_t newt in
       single_write fd serialized in
     let f2 fd =
@@ -88,10 +87,14 @@ cover these:
       let s = "" in
       let readback = read fd s thesize in s in
     try
+      (*If file DNE, create and stuff with json and do readback test*)
       let _ = with_file ~perm:0o644 ~mode:[O_EXCL;O_CREATE;O_RDWR] alockstruct.apath f in
       let contents = with_file ~perm:0o644 ~mode:[O_EXCL;O_CREATE;O_RDWR] alockstruct.path f2 in
       let l = t_of_string contents in
       if (idendtt l newt) then true else false
+      (*===TODO===if file exists, read it, if has same pid belongs to us, update ts and overwrite json
+       else the lock belongs to someone else...return false, failed to acquire lock
+      *)
     with
     | EACCES -> let _ = printf "Permission denied" in false
     | EAGAIN -> let _ = printf "Resource temporarily unavailable; try again" in false
@@ -100,20 +103,22 @@ cover these:
     | EDEADLK -> let _ = printf "Resource deadlock would occur" in false
     | EEXIST -> let _ = printf "File exists" in false
     | EINVAL -> let _ = printf "Invalid argument" in false
-    | EIO -> let _ = printf "" in ()                 (** Hardware I/O error *)
-    | EISDIR -> let _ = printf "" in ()              (** Is a directory *)
-    | EMFILE -> let _ = printf "" in ()              (** Too many open files by the process *)
-    | ENAMETOOLONG -> let _ = printf "" in ()        (** Filename too long *)
-    | ENFILE -> let _ = printf "" in ()              (** Too many open files in the system *)
-    | ENODEV -> let _ = printf "" in ()              (** No such device *)
-    | ENOENT -> let _ = printf "" in ()              (** No such file or directory *)
-    | ENOLCK -> let _ = printf "" in ()              (** No locks available *)
-    | ENOMEM -> let _ = printf "" in ()              (** Not enough memory *)
-    | ENOSPC -> let _ = printf "" in ()              (** No space left on device *)
-    | ENOSYS -> let _ = printf "" in ()              (** Function not supported *)
-    | ENXIO -> let _ = printf "" in ()               (** No such device or address *)
-    | EPERM -> let _ = printf "" in ()               (** Operation not permitted *)
-    | EROFS -> let _ = printf "" in ()               (** Read-only file system *)
-    | EUNKNOWNERR of int -> let _ = printf "" in ()
-    | _ -> let _ = printf "" in ()
-end 
+    | EIO -> let _ = printf "Hardware I/O error" in false
+    | EISDIR -> let _ = printf "Is a directory" in false
+    | EMFILE -> let _ = printf "Too many open files by the process" in ()
+    | ENAMETOOLONG -> let _ = printf "Filename too long" in false
+    | ENFILE -> let _ = printf "Too many open files in the system" in false
+    | ENODEV -> let _ = printf "No such device" in false
+    | ENOENT -> let _ = printf "No such file or directory" in false
+    | ENOLCK -> let _ = printf "No locks available" in false
+    | ENOMEM -> let _ = printf "Not enough memory" in false
+    | ENOSPC -> let _ = printf "No space left on device" in false
+    | ENOSYS -> let _ = printf "Function not supported" in false
+    | ENXIO -> let _ = printf "No such device or address" in false
+    | EPERM -> let _ = printf "Operation not permitted" in false
+    | EROFS -> let _ = printf "Read-only file system" in false
+    | EUNKNOWNERR int -> let _ = printf "Unknown error" in false
+    | _ -> let _ = printf "Really unknown error" in false
+
+						      (*====TODO===  release*)
+end
