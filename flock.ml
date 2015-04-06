@@ -17,6 +17,11 @@ Traditional lock file based file locking. This is how things where done traditio
 Although private file locks, like flocks, are local. This code seeks to be old school file locking and not local...should work across
 different OS's and mounts across networks and file systems.
  *)
+
+(*Inspired by https://github.com/markedup-mobi/file-lock
+NOTE on NFS: http://www.time-travellers.org/shane/papers/NFS_considered_harmful.html
+The solution for performing atomic file locking using a lockfile is to create a unique file on the same fs (e.g., incorporating hostname and pid), use link(2) to make a link to the lockfile and use stat(2) on the unique file to check if its link count has increased to 2. Do not use the return value of the link() call.
+*)
 open Core.Std
 module Flock : sig 
   type t
@@ -24,10 +29,13 @@ module Flock : sig
   val acquire: t -> bool
   val release: t -> unit
 end = struct
-  type t = { pid:int; acquired_dt:Core.Std.Time.t; path:string};;
+  (*type t = { pid:int; localhostname:string; acquired_dt:Core.Std.Time.t; path:string};;*)
+  include Flock_t
   let idendtt t1 t2 =
-    if ((t1.pid <> t2.pid) ||
-	  ((Time.compare t1.acquired_dt t2.acquired_dt) <>0) ||
+    let time1 = Time.of_string t1.acquired_dt in
+    let time2 = Time.of_string t2.acquired_dt in
+    if ((t1.pid <> t2.pid) || (t1.localhostname <> t2.localhostname) ||
+	  ((Time.compare time1 time2) <>0) ||
 	    ((String.compare t1.path t2.path) <>0)) then
       false
     else
@@ -69,7 +77,8 @@ cover these:
         Core.Std.Time.to_string_fix_proto `Utc t
         Core.Std.Time.to_string_fix_proto `Utc t
      *)
-
+  exception MyEExist
+  exception Impossible_lock2large
   (*internal use only*)
   type lock = { path:string; status:lock_status };;
   let create apath = { path=apath; status=Unlocked };;
@@ -77,48 +86,85 @@ cover these:
     let open Unix in
     let open Flock_j in
     let thepid = getpid () in
-    let newt = { pid=(Core.Std.Pid.to_int(thepid)); acquired_dt=(Time.now ()); path=alockstruct.path } in
-    let f fd =
-      let serialized = string_of_t newt in
-      single_write fd serialized in
-    let f2 fd =
-      let thestats = stat alockstruct.path in
-      let thesize = thestats.st_size in 
-      let s = "" in
-      let readback = read fd s thesize in s in
-    try
-      (*If file DNE, create and stuff with json and do readback test*)
-      let _ = with_file ~perm:0o644 ~mode:[O_EXCL;O_CREATE;O_RDWR] alockstruct.apath f in
-      let contents = with_file ~perm:0o644 ~mode:[O_EXCL;O_CREATE;O_RDWR] alockstruct.path f2 in
-      let l = t_of_string contents in
-      if (idendtt l newt) then true else false
-      (*===TODO===if file exists, read it, if has same pid belongs to us, update ts and overwrite json
-       else the lock belongs to someone else...return false, failed to acquire lock
-      *)
+    let thepid_asstring = Core.Std.Pid.to_string thepid in
+    let newt = { pid=(int_of_string (thepid_asstring));
+		 localhostname=gethostname ();
+		 acquired_dt=(Time.to_string (Time.now ()));
+		 path=alockstruct.path } in
+    let create_and_write fname fd =
+      (* Need to link again and count 2 links with fstat to ensure this works over 
+         buggy or early NFS versions on which O_EXCL doesnt work, not atomic *)
+      let uniquename = (gethostname ()) ^ thepid_asstring in 
+      let _ = link ~force:false ~target:fname ~link_name:uniquename in
+      let thestats = fstat fd in
+      match thestats.st_nlink with
+      |	2 -> let _ = unlink uniquename in
+	     let serialized = string_of_t newt in
+	     single_write fd serialized
+      | _ -> raise MyEExist in
+    let readback_verify s fd = 
+      let thestats = fstat fd in
+      let thesize = (Int64.to_int (thestats.st_size)) in
+      match thesize with
+	Some size -> let _ = s := (String.create size) in
+		     read fd ~buf:!s ~len:size
+      | None -> raise Impossible_lock2large in
+    let readback_verify_truncate_update s b fd =
+      let thestats = fstat fd in
+      let thesize = (Int64.to_int (thestats.st_size)) in 
+      match thesize with
+      | Some size -> let _ = s:= (String.create size) in
+		     let readback = read fd ~buf:!s ~len:size in
+		     let l = t_of_string !s in
+		     if (l.pid = newt.pid) then
+		       let serialized = string_of_t newt in
+		       let _ = ftruncate fd Int64.zero in 
+		       let _ = single_write fd serialized in b:= true
+		     else
+		       b := false
+      | None -> raise Impossible_lock2large in
+    try 
+      let r = access alockstruct.path [`Read;`Write;`Exists] in
+      match r with
+      | Error _ -> let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (create_and_write alockstruct.path) in
+		   let readback = ref "" in 
+		   let count = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (readback_verify readback) in
+		   let l = t_of_string !readback in
+		   if (idendtt l newt) then true else false
+      | Ok () -> let readback = ref "" in
+		 let b = ref false in
+		 let _ = with_file ~perm:0o000 ~mode:[O_RDWR] alockstruct.path (readback_verify_truncate_update readback b) in
+		 if !b then true else false
     with
-    | EACCES -> let _ = printf "Permission denied" in false
-    | EAGAIN -> let _ = printf "Resource temporarily unavailable; try again" in false
-    | EBADF -> let _ = printf "Bad file descriptor" in false
-    | EBUSY -> let _ = printf "Resource unavailable" in false
-    | EDEADLK -> let _ = printf "Resource deadlock would occur" in false
-    | EEXIST -> let _ = printf "File exists" in false
-    | EINVAL -> let _ = printf "Invalid argument" in false
-    | EIO -> let _ = printf "Hardware I/O error" in false
-    | EISDIR -> let _ = printf "Is a directory" in false
-    | EMFILE -> let _ = printf "Too many open files by the process" in ()
-    | ENAMETOOLONG -> let _ = printf "Filename too long" in false
-    | ENFILE -> let _ = printf "Too many open files in the system" in false
-    | ENODEV -> let _ = printf "No such device" in false
-    | ENOENT -> let _ = printf "No such file or directory" in false
-    | ENOLCK -> let _ = printf "No locks available" in false
-    | ENOMEM -> let _ = printf "Not enough memory" in false
-    | ENOSPC -> let _ = printf "No space left on device" in false
-    | ENOSYS -> let _ = printf "Function not supported" in false
-    | ENXIO -> let _ = printf "No such device or address" in false
-    | EPERM -> let _ = printf "Operation not permitted" in false
-    | EROFS -> let _ = printf "Read-only file system" in false
-    | EUNKNOWNERR int -> let _ = printf "Unknown error" in false
-    | _ -> let _ = printf "Really unknown error" in false
-
-						      (*====TODO===  release*)
+    | EACCES -> let _ = printf "\nPermission denied" in false
+    | EAGAIN -> let _ = printf "\nResource temporarily unavailable; try again" in false
+    | EBADF -> let _ = printf "\nBad file descriptor" in false
+    | EBUSY -> let _ = printf "\nResource unavailable" in false
+    | EDEADLK -> let _ = printf "\nResource deadlock would occur" in false
+    | EEXIST -> let _ = printf "\nFile exists...reading it see if it belongs to same process..." in 
+		let attempt_on_existinglock = with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path readback_verify_truncate_update in
+		if attempt_on_existinglock then true else false
+    | EINVAL -> let _ = printf "\nInvalid argument" in false
+    | EIO -> let _ = printf "\nHardware I/O error" in false
+    | EISDIR -> let _ = printf "\nIs a directory" in false
+    | EMFILE -> let _ = printf "\nToo many open files by the process" in ()
+    | ENAMETOOLONG -> let _ = printf "\nFilename too long" in false
+    | ENFILE -> let _ = printf "\nToo many open files in the system" in false
+    | ENODEV -> let _ = printf "\nNo such device" in false
+    | ENOENT -> let _ = printf "\nNo such file or directory" in false
+    | ENOLCK -> let _ = printf "\nNo locks available" in false
+    | ENOMEM -> let _ = printf "\nNot enough memory" in false
+    | ENOSPC -> let _ = printf "\nNo space left on device" in false
+    | ENOSYS -> let _ = printf "\nFunction not supported" in false
+    | ENXIO -> let _ = printf "\nNo such device or address" in false
+    | EPERM -> let _ = printf "\nOperation not permitted" in false
+    | EROFS -> let _ = printf "\nRead-only file system" in false
+    | EUNKNOWNERR int -> let _ = printf "\nUnknown error" in false
+    | _ -> let _ = printf "\nReally unknown error" in false
+  (*==TODO?== Attempt to read first--ensure already own lock *)
+  let release alockstruct =
+    let open Unix in
+    remove alockstruct.path;;
+    
+    
 end
