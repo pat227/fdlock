@@ -22,13 +22,13 @@ different OS's and mounts across networks and file systems.
 NOTE on NFS: http://www.time-travellers.org/shane/papers/NFS_considered_harmful.html
 The solution for performing atomic file locking using a lockfile is to create a unique file on the same fs (e.g., incorporating hostname and pid), use link(2) to make a link to the lockfile and use stat(2) on the unique file to check if its link count has increased to 2. Do not use the return value of the link() call.
 *)
-open Core.Std
 open Flocksig
 open Flock_t
 module Flock : Flocksig = struct
   (*type t = { pid:int; localhostname:string; acquired_dt:Core.Std.Time.t; path:string; status:string};;*)
   include Flock_t
   let idendtt t1 t2 =
+    let open Core.Std in
     let time1 = Time.of_string t1.acquired_dt in
     let time2 = Time.of_string t2.acquired_dt in
     if ((t1.pid <> t2.pid) || (t1.localhostname <> t2.localhostname) ||
@@ -50,35 +50,6 @@ module Flock : Flocksig = struct
     | "Locked" -> Locked
     | "Unlocked" -> Unlocked
     | _ -> raise Unrecognized_lock_state
-  (*Attempt openfile : ?perm:file_perm -> mode:open_flag list -> string -> File_descr.t
-      With error ENOENT, try to create and write t's data serialized as json, with 
-      with EROFS throw error b/c impossible to lock on ro fs, 
-      with EACCES I think that means file exists if we try to open with the O_EXCL open flag.
-USE: O_RDWR O_CREAT  O_EXCL
-cover these:
-    | EACCES              (** Permission denied *)
-    | EAGAIN              (** Resource temporarily unavailable; try again *)
-    | EBADF               (** Bad file descriptor *)
-    | EBUSY               (** Resource unavailable *)
-    | EDEADLK             (** Resource deadlock would occur *)
-    | EEXIST              (** File exists *)
-    | EINVAL              (** Invalid argument *)
-    | EIO                 (** Hardware I/O error *)
-    | EISDIR              (** Is a directory *)
-    | EMFILE              (** Too many open files by the process *)
-    | ENAMETOOLONG        (** Filename too long *)
-    | ENFILE              (** Too many open files in the system *)
-    | ENODEV              (** No such device *)
-    | ENOENT              (** No such file or directory *)
-    | ENOLCK              (** No locks available *)
-    | ENOMEM              (** Not enough memory *)
-    | ENOSPC              (** No space left on device *)
-    | ENOSYS              (** Function not supported *)
-    | ENXIO               (** No such device or address *)
-    | EPERM               (** Operation not permitted *)
-    | EROFS               (** Read-only file system *)
-    | EUNKNOWNERR of int
-   *)
     
     (*Serialize / deserialize current time with: 
         Core.Std.Time.to_string_fix_proto `Utc t
@@ -90,7 +61,8 @@ cover these:
   type lock_ = { path:string; status:lock_status };;
   let create_ apath = { path=apath; status=Unlocked };;
   let acquire_ (alockstruct:lock_) =
-    let open Unix in
+    let open Core.Std in 
+    let open Core.Std.Unix in
     let open Flock_j in
     let thepid = getpid () in
     let thepid_asstring = Core.Std.Pid.to_string thepid in
@@ -122,7 +94,7 @@ cover these:
       let thesize = (Int64.to_int (thestats.st_size)) in 
       match thesize with
       | Some size -> let s = ref (String.create size) in
-		     let readback = read fd ~buf:!s ~len:size in
+		     let _ = read fd ~buf:!s ~len:size in
 		     let l = t_of_string !s in
 		     if (l.pid = newt.pid) then
 		       let serialized = string_of_t newt in
@@ -136,7 +108,7 @@ cover these:
       match r with
       | Error _ -> let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (create_and_write alockstruct.path) in
 		   let readback = ref "" in 
-		   let count = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (readback_verify readback) in
+		   let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (readback_verify readback) in
 		   let l = t_of_string !readback in
 		   if (idendtt l newt) then true else false
       | Ok () -> with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:readback_verify_truncate_update
@@ -146,6 +118,83 @@ cover these:
 		  if attempt_on_existinglock then true else false
     | Impossible_lock2large -> let _ = printf "\nLock file size too large for int type. U R SOL." in false
 
+  let release_ (alockstruct:lock_) =
+    let open Core.Std in 
+    let open Core.Std.Unix in
+    let readback_verify fd =
+      let open Flock_j in
+      let thestats = fstat fd in
+      let thesize = (Int64.to_int (thestats.st_size)) in 
+      match thesize with
+      | Some size -> let s = ref (String.create size) in
+		     let _ = read fd ~buf:!s ~len:size in
+		     let l = t_of_string !s in
+		     if (l.pid = (Core.Std.Pid.to_int (Core.Std.Unix.getpid ()))) then true
+		     else false
+      | None -> raise Impossible_lock2large in
+    let r = access alockstruct.path [`Read;`Write;`Exists] in
+    match r with
+    | Ok () -> let _ = printf "\nReleasing lock file, it exists...confirm it belongs to us first" in
+	       let is_it_ours = with_file ~perm:0o000 ~mode:[O_RDWR] alockstruct.path ~f:(readback_verify) in
+	       if is_it_ours then
+		 let _ = remove alockstruct.path in true
+	       else
+		 false
+    | Error _ -> let _ = printf "Could not release lock!" in false;;
+
+  let create thepath =
+    let thepid = Core.Std.Unix.getpid () in
+    let thepid_asint = Core.Std.Pid.to_int thepid in
+    {
+      pid = thepid_asint;
+      localhostname = Core.Std.Unix.gethostname ();
+      acquired_dt = "";
+      path = thepath;
+      status="Unlocked";
+    };;
+
+  let release (lockt:Flock_t.t) =
+    let internallock = { path = lockt.path; status = Unlocked } in
+    let _ = release_ internallock in ();;
+  let acquire (lockt:Flock_t.t) =
+    let internallock = { path = lockt.path; status = Unlocked } in
+    acquire_ internallock;;
+end
+
+
+
+
+
+
+  (*Attempt openfile : ?perm:file_perm -> mode:open_flag list -> string -> File_descr.t
+      With error ENOENT, try to create and write t's data serialized as json, with 
+      with EROFS throw error b/c impossible to lock on ro fs, 
+      with EACCES I think that means file exists if we try to open with the O_EXCL open flag.
+USE: O_RDWR O_CREAT  O_EXCL
+cover these:
+    | EACCES              (** Permission denied *)
+    | EAGAIN              (** Resource temporarily unavailable; try again *)
+    | EBADF               (** Bad file descriptor *)
+    | EBUSY               (** Resource unavailable *)
+    | EDEADLK             (** Resource deadlock would occur *)
+    | EEXIST              (** File exists *)
+    | EINVAL              (** Invalid argument *)
+    | EIO                 (** Hardware I/O error *)
+    | EISDIR              (** Is a directory *)
+    | EMFILE              (** Too many open files by the process *)
+    | ENAMETOOLONG        (** Filename too long *)
+    | ENFILE              (** Too many open files in the system *)
+    | ENODEV              (** No such device *)
+    | ENOENT              (** No such file or directory *)
+    | ENOLCK              (** No locks available *)
+    | ENOMEM              (** Not enough memory *)
+    | ENOSPC              (** No space left on device *)
+    | ENOSYS              (** Function not supported *)
+    | ENXIO               (** No such device or address *)
+    | EPERM               (** Operation not permitted *)
+    | EROFS               (** Read-only file system *)
+    | EUNKNOWNERR of int
+   *)
     (*| EEXIST -> 
     | EACCES -> let _ = printf "\nPermission denied" in false
     | EAGAIN -> let _ = printf "\nResource temporarily unavailable; try again" in false
@@ -170,44 +219,3 @@ cover these:
     | EROFS -> let _ = printf "\nRead-only file system" in false
     | EUNKNOWNERR int -> let _ = printf "\nUnknown error" in false
     | _ -> let _ = printf "\nReally unknown error" in false *)
-
-  let release_ (alockstruct:lock_) =
-    let open Unix in
-    let readback_verify fd =
-      let open Flock_j in
-      let thestats = fstat fd in
-      let thesize = (Int64.to_int (thestats.st_size)) in 
-      match thesize with
-      | Some size -> let s = ref (String.create size) in
-		     let readback = read fd ~buf:!s ~len:size in
-		     let l = t_of_string !s in
-		     if (l.pid = (Core.Std.Pid.to_int (Unix.getpid ()))) then true
-		     else false
-      | None -> raise Impossible_lock2large in
-    let r = access alockstruct.path [`Read;`Write;`Exists] in
-    match r with
-    | Ok () -> let _ = printf "\nReleasing lock file, it exists...confirm it belongs to us first" in
-	       let is_it_ours = with_file ~perm:0o000 ~mode:[O_RDWR] alockstruct.path ~f:(readback_verify) in
-	       if is_it_ours then
-		 let _ = remove alockstruct.path in true
-	       else
-		 false
-    | Error _ -> let _ = printf "Could not release lock!" in false;;
-
-  let create thepath =
-    let thepid = Unix.getpid () in
-    let thepid_asint = Core.Std.Pid.to_int thepid in
-    {
-      pid = thepid_asint;
-      localhostname = Unix.gethostname ();
-      acquired_dt = "";
-      path = thepath;
-      status="Unlocked";
-    };;
-
-  let release lockt =
-    release_ lockt
-  let acquire (lockt:Flock_t.t) =
-    let internallock = { path = lockt.path; status = Unlocked } in
-    acquire_ internallock;;
-end
