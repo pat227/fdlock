@@ -10,7 +10,9 @@ flock_j.cma: flock_t.mli flock_j.mli flock_t.cmi flock_j.cmi
 	ocamlfind ocamlc -g -a flock_j.ml -package atdgen -o flock_j.cma
 flocksig.cmi:	flocksig.mli
 	ocamlfind ocamlc -g -c -principal -thread -I ./ flocksig.mli
-all:	flock_t.mli flock_j.mli flock_t.cmi flock_j.cmi flock_j.cma flocksig.cmi  
+flock.cma:	flock_t.mli flock_j.mli flock_t.cmi flock_j.cmi flock_j.cma flocksig.cmi  
 	ocamlfind ocamlc -a -g -principal -thread -I ./ -package core flock.ml -o flock.cma
+all:	flock_t.mli flock_j.mli flock_t.cmi flock_j.cmi flock_j.cma flocksig.cmi flock.cma
+	ocamlfind ocamlc -g -principal -thread -I ./ -package core testlock.ml
 clean:
 	rm *.cm?; rm *.o; rm flock_?.mli; rm flock_?.ml
