@@ -9,7 +9,9 @@ module TestLock = struct
     let _ = printf "\nCreated lock..." in
     if (F.acquire alock)
     then
-      printf "\nAcquired the lock at %s" alock.path
+      (let _ = printf "\nAcquired the lock at %s" alock.path in
+      let _ = F.release alock in
+      printf "\nReleased the lock.")
     else
       printf "\nFailed to acquire the lock at %s" alock.path
 	     
@@ -21,5 +23,5 @@ module TestLock = struct
        +> flag "-lockfilepath" (required string) ~doc:"the path of the lock file")
       (fun arg1 () -> (exec ~args:[arg1]))
       
-      (*  let () = Command.run command*)
+  let () = Command.run command
 end 

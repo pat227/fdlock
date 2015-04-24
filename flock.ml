@@ -71,24 +71,30 @@ module Flock : Flocksig = struct
 		 acquired_dt=(Time.to_string (Time.now ()));
 		 path=alockstruct.path;
 		 status="Locked" } in
-    let create_and_write fname fd =
+    let create_and_write fd =
       (* Need to link again and count 2 links with fstat to ensure this works over 
          buggy or early NFS versions on which O_EXCL doesnt work, not atomic *)
-      let uniquename = (gethostname ()) ^ thepid_asstring in 
-      let _ = link ~force:true ~target:fname ~link_name:uniquename in
+      let _ = printf "\nAcquiring create_&_write " in
+      let uniquename = (gethostname ()) ^ thepid_asstring in
+      let _ = printf " uniquename: %s " uniquename in
+      let _ = link ~force:true ~target:alockstruct.path ~link_name:uniquename () in
       let thestats = fstat fd in
       match thestats.st_nlink with
       |	2 -> let _ = unlink uniquename in
 	     let serialized = string_of_t newt in
-	     single_write fd serialized
-      | _ -> raise MyEExist in
-    let readback_verify s fd = 
+	     let _ = printf "\nAcquiring...serialized: %s" serialized in
+	     single_write fd ~buf:serialized
+      | _ -> let _ = printf "ERROR 85 links:%d" thestats.st_nlink in raise MyEExist in
+    let readback_verify fd = 
       let thestats = fstat fd in
       let thesize = (Int64.to_int (thestats.st_size)) in
       match thesize with
-	Some size -> let _ = s := (String.create size) in
-		     read fd ~buf:!s ~len:size
-      | None -> raise Impossible_lock2large in
+	Some size -> let s = (String.create size) in
+		     let _ = printf "\nAcquiring ... size: %d" size in 
+		     let _ = read fd ~buf:s ~len:size in s
+      | None -> let _ = printf "ERROR 92" in
+		raise Impossible_lock2large
+      | _ -> let _ = printf "\nFailed to readback-verify..." in "" in
     let readback_verify_truncate_update fd =
       let thestats = fstat fd in
       let thesize = (Int64.to_int (thestats.st_size)) in 
@@ -106,10 +112,10 @@ module Flock : Flocksig = struct
     try 
       let r = access alockstruct.path [`Read;`Write;`Exists] in
       match r with
-      | Error _ -> let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (create_and_write alockstruct.path) in
-		   let readback = ref "" in 
-		   let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path (readback_verify readback) in
-		   let l = t_of_string !readback in
+      | Error _ -> let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path ~f:create_and_write in
+		   let readback = with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:readback_verify in
+		   let _ = printf "\nAcquiring...readback: %s" readback in
+		   let l = t_of_string readback in
 		   if (idendtt l newt) then true else false
       | Ok () -> with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:readback_verify_truncate_update
     with
@@ -126,16 +132,16 @@ module Flock : Flocksig = struct
       let thestats = fstat fd in
       let thesize = (Int64.to_int (thestats.st_size)) in 
       match thesize with
-      | Some size -> let s = ref (String.create size) in
-		     let _ = read fd ~buf:!s ~len:size in
-		     let l = t_of_string !s in
+      | Some size -> let s = String.create size in
+		     let _ = read fd ~buf:s ~len:size in
+		     let l = t_of_string s in
 		     if (l.pid = (Core.Std.Pid.to_int (Core.Std.Unix.getpid ()))) then true
 		     else false
       | None -> raise Impossible_lock2large in
     let r = access alockstruct.path [`Read;`Write;`Exists] in
     match r with
     | Ok () -> let _ = printf "\nReleasing lock file, it exists...confirm it belongs to us first" in
-	       let is_it_ours = with_file ~perm:0o000 ~mode:[O_RDWR] alockstruct.path ~f:(readback_verify) in
+	       let is_it_ours = with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:(readback_verify) in
 	       if is_it_ours then
 		 let _ = remove alockstruct.path in true
 	       else
