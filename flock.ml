@@ -25,12 +25,14 @@ The solution for performing atomic file locking using a lockfile is to create a 
 open Flocksig
 open Flock_t
 module Flock : Flocksig = struct
-  (*type t = { pid:int; localhostname:string; acquired_dt:Core.Std.Time.t; path:string; status:string};;*)
+  (*The status field is misleading since will only be Locked if present on disk, else file is deleted upon release.
+    type t = { pid:int; localhostname:string; acquired_dt:string(of Core.Std.Time.t); path:string; status:string};;
+   *)
   include Flock_t
   let idendtt t1 t2 =
     let open Core.Std in
-    let time1 = Time.of_string t1.acquired_dt in
-    let time2 = Time.of_string t2.acquired_dt in
+    let time1 = Time.of_string_fix_proto `Utc  t1.acquired_dt in
+    let time2 = Time.of_string_fix_proto `Utc  t2.acquired_dt in
     if ((t1.pid <> t2.pid) || (t1.localhostname <> t2.localhostname) ||
 	  ((Time.compare time1 time2) <>0) ||
 	    ((String.compare t1.path t2.path) <>0)) then
@@ -53,14 +55,14 @@ module Flock : Flocksig = struct
     
     (*Serialize / deserialize current time with: 
         Core.Std.Time.to_string_fix_proto `Utc t
-        Core.Std.Time.to_string_fix_proto `Utc t
+        Core.Std.Time.of_string_fix_proto `Utc t
      *)
   exception MyEExist
   exception Impossible_lock2large
   (*Internal use only*)
   type lock_ = { path:string; status:lock_status };;
   let create_ apath = { path=apath; status=Unlocked };;
-  let acquire_ (alockstruct:lock_) =
+  let acquire_ (alockstruct:lock_) ?(leaseseconds=None) =
     let open Core.Std in 
     let open Core.Std.Unix in
     let open Flock_j in
@@ -68,7 +70,7 @@ module Flock : Flocksig = struct
     let thepid_asstring = Core.Std.Pid.to_string thepid in
     let newt = { pid=(int_of_string (thepid_asstring));
 		 localhostname=gethostname ();
-		 acquired_dt=(Time.to_string (Time.now ()));
+		 acquired_dt=(Core.Std.Time.to_string_fix_proto `Utc (Time.now ()));
 		 path=alockstruct.path;
 		 status="Locked" } in
     let create_and_write fd =
@@ -81,10 +83,11 @@ module Flock : Flocksig = struct
       let thestats = fstat fd in
       match thestats.st_nlink with
       |	2 -> let _ = unlink uniquename in
-	     let serialized = string_of_t newt in
+	     let serialized = string_of_t newt in   
 	     let _ = printf "\nAcquiring...serialized: %s" serialized in
 	     single_write fd ~buf:serialized
-      | _ -> let _ = printf "ERROR 85 links:%d" thestats.st_nlink in raise MyEExist in
+      | _ -> let _ = printf "ERROR 85 links:%d" thestats.st_nlink in
+	     raise MyEExist in
     let readback_verify fd = 
       let thestats = fstat fd in
       let thesize = (Int64.to_int (thestats.st_size)) in
@@ -93,36 +96,57 @@ module Flock : Flocksig = struct
 		     let _ = printf "\nAcquiring ... size: %d" size in 
 		     let _ = read fd ~buf:s ~len:size in s
       | None -> let _ = printf "ERROR 92" in
-		raise Impossible_lock2large
-      | _ -> let _ = printf "\nFailed to readback-verify..." in "" in
+		raise Impossible_lock2large in
     let readback_verify_truncate_update fd =
       let thestats = fstat fd in
       let thesize = (Int64.to_int (thestats.st_size)) in 
       match thesize with
-      | Some size -> let s = ref (String.create size) in
-		     let _ = read fd ~buf:!s ~len:size in
-		     let l = t_of_string !s in
-		     if (l.pid = newt.pid) then
+      | Some size -> let s = (String.create size) in
+		     let _ = read fd ~buf:s ~len:size in
+		     let _ = printf "\nRead: %s " s in
+		     let l = t_of_string s in
+		     if (l.pid = newt.pid) then (*update time of acquisition*)
 		       let serialized = string_of_t newt in
+		       let _ = printf "\nWriting %s" serialized in
 		       let _ = ftruncate fd Int64.zero in 
 		       let _ = single_write fd serialized in true
-		     else
-		       false
+		     else (*check if lock can be considered expired and take it if so*)
+		       (match leaseseconds with
+			  Some ls -> let nowtime = Core.Std.Time.now () in
+				     let age = Core.Std.Time.diff nowtime (Core.Std.Time.of_string_fix_proto `Utc l.acquired_dt) in
+				     let age_seconds = Core.Std.Time.Span.to_sec age in
+				     let _ = printf "\nAge of existing lock in secs: %f" age_seconds in
+				     if((Float.to_int age_seconds) >= ls)
+				     then (*lock is ours*)
+				       let _ = printf "\nAge of existing lock exceeds max lease life %d ; acquiring lock" ls in
+				       let serialized = string_of_t newt in
+				       let _ = ftruncate fd Int64.zero in 
+				       let _ = single_write fd serialized in true
+				     else (*lock lease still valid...not ours*)
+				       let _ = printf "\nAge of existing lock less than max lease" in
+				       false
+			| None -> let _ = printf "\nLock lease still valid..." in false)
       | None -> raise Impossible_lock2large in
     try 
       let r = access alockstruct.path [`Read;`Write;`Exists] in
       match r with
-      | Error _ -> let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR] alockstruct.path ~f:create_and_write in
-		   let readback = with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:readback_verify in
+      | Error _ -> let _ = with_file ~perm:0o600 ~mode:[O_EXCL;O_CREAT;O_RDWR]
+				     alockstruct.path ~f:create_and_write in
+		   let readback = with_file ~perm:0o600 ~mode:[O_RDWR]
+					    alockstruct.path ~f:readback_verify in
 		   let _ = printf "\nAcquiring...readback: %s" readback in
 		   let l = t_of_string readback in
 		   if (idendtt l newt) then true else false
-      | Ok () -> with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:readback_verify_truncate_update
+      | Ok () -> with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path
+			   ~f:readback_verify_truncate_update
     with
     | MyEExist -> let _ = printf "\nFile exists...reading it see if it belongs to us..." in
-		  let attempt_on_existinglock = with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:readback_verify_truncate_update in
+		  let attempt_on_existinglock =
+		    with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path
+			      ~f:readback_verify_truncate_update in
 		  if attempt_on_existinglock then true else false
     | Impossible_lock2large -> let _ = printf "\nLock file size too large for int type. U R SOL." in false
+  (*| _ -> let _ = printf "\nUnexpected error..." in false*)
 
   let release_ (alockstruct:lock_) =
     let open Core.Std in 
@@ -141,7 +165,8 @@ module Flock : Flocksig = struct
     let r = access alockstruct.path [`Read;`Write;`Exists] in
     match r with
     | Ok () -> let _ = printf "\nReleasing lock file, it exists...confirm it belongs to us first" in
-	       let is_it_ours = with_file ~perm:0o600 ~mode:[O_RDWR] alockstruct.path ~f:(readback_verify) in
+	       let is_it_ours = with_file ~perm:0o600 ~mode:[O_RDWR]
+					  alockstruct.path ~f:(readback_verify) in
 	       if is_it_ours then
 		 let _ = remove alockstruct.path in true
 	       else
@@ -162,9 +187,9 @@ module Flock : Flocksig = struct
   let release (lockt:Flock_t.t) =
     let internallock = { path = lockt.path; status = Unlocked } in
     let _ = release_ internallock in ();;
-  let acquire (lockt:Flock_t.t) =
+  let acquire (lockt:Flock_t.t) leaseseconds =
     let internallock = { path = lockt.path; status = Unlocked } in
-    acquire_ internallock;;
+    acquire_ internallock ~leaseseconds;;
 end
 
 
