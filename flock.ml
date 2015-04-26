@@ -108,8 +108,9 @@ module Flock : Flocksig = struct
 		     if (l.pid = newt.pid) then (*update time of acquisition*)
 		       let serialized = string_of_t newt in
 		       let _ = printf "\nWriting %s" serialized in
-		       let _ = ftruncate fd Int64.zero in 
-		       let _ = single_write fd serialized in true
+		       let _ = single_write fd serialized in
+		       let _ = ftruncate fd (Int64.of_int (Core.Std.String.length serialized)) in
+		       true
 		     else (*check if lock can be considered expired and take it if so*)
 		       (match leaseseconds with
 			  Some ls -> let nowtime = Core.Std.Time.now () in
@@ -120,8 +121,9 @@ module Flock : Flocksig = struct
 				     then (*lock is ours*)
 				       let _ = printf "\nAge of existing lock exceeds max lease life %d ; acquiring lock" ls in
 				       let serialized = string_of_t newt in
-				       let _ = ftruncate fd Int64.zero in 
-				       let _ = single_write fd serialized in true
+				       let _ = single_write fd serialized in
+				       let _ = ftruncate fd (Int64.of_int (Core.Std.String.length serialized)) in 
+				       true
 				     else (*lock lease still valid...not ours*)
 				       let _ = printf "\nAge of existing lock less than max lease" in
 				       false
