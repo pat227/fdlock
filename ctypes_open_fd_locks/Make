@@ -1,0 +1,13 @@
+default:	all
+clean:
+	rm *.o *.so.* 
+all:	lib_openfd_lock.o lib_openfd_lock.so.0.1 main.o main
+lib_openfd_lock.o:	lib_openfd_lock.c
+	gcc -std=c99 -fPIC -g -c -fvisibility=default -rdynamic -Wall -lm lib_openfd_lock.c -olib_openfd_lock.o
+lib_openfd_lock.so.0.1:	lib_openfd_lock.o
+	gcc -std=c99 -g -shared -fvisibility=default -rdynamic -Wl,-E,--no-undefined,-soname,lib_openfd_lock.so.0 lib_openfd_lock.o -o lib_openfd_lockx.so.0.1 -lc -lm
+
+main.o:	test_lib.c
+	gcc -std=c99 -c testlib.c -Wall -Wextra -omain.o
+main:	main.o lib_openfd_lock.so.0.1
+	gcc -std=c99 -g -ohelloworld main.o -L./ lib_openfd_lock.so.0.1 -lm -Wl,-rpath=./

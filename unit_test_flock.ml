@@ -61,12 +61,9 @@ module TestLock = struct
 			   "Should fail to acquire lock b/c of pid" >:: ( fun () -> 
 									  assert_equal false (alterPID_of_lock_on_disk lockfilename 1; testAcquire_test1 lockfilename)
 									);
+			   "Should acquire lock b/c of lease expiration" >:: ( fun () -> 
+									       assert_equal true (testAcquire lockfilename (Some(0)))
+									     );
 			 ]
   let _ = run_test_tt (*?verbose:(Some true)*) test_suite_one
 end
-
-		    (*
- "Should acquire lock b/c of lease expiration" >:: ( fun () -> 
-									       assert_equal true (testAcquire lockfilename (Some(0)))
-									     );
-*)
