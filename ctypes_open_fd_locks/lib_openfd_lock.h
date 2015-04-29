@@ -5,5 +5,5 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-flock* acquireLock (char *arg);
-void releaseLock(flock* lck);
+flock* acquireLock (int fd);
+void releaseLock(flock* lck, int fd);

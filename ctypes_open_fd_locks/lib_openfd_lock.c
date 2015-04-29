@@ -18,21 +18,20 @@ struct flock64 {
 };
 */
 
-flock* acquireLock (char *arg)
+flock* acquireLock (int fd)
 {
-  int i, fd, len;
   flock* flp = (flock*)malloc(sizeof(flock));
   memset(((void*)flp),'\0',sizeof(flock));
   flp->l_whence = SEEK_SET;
   flp->l_start = 0;
   flp->l_len = 1;
   flp->l_type = F_WRLCK;
-  fd = open (*arg, O_RDWR | O_CREAT, 0666);
+  //fd = open (*arg, O_RDWR | O_CREAT, 0666);
   fcntl (fd, F_OFD_SETLKW, flp);
   printf ("\nAcquired lock");
   return flp;
 }
-void releaseLock(flock* lck){
+void releaseLock(flock* lck, int fd){
   lck->l_type = F_UNLCK;
   fcntl (fd, F_OFD_SETLK, lck);
   /* sleep to ensure lock is yielded to another thread */
