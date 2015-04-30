@@ -9,14 +9,16 @@ int main(int argc, char** args){
   char* s = args[1];
   truncate (*s, 0);
   char buf[256];
+  //open needs s not *s, yet bad form gets past compiler even with -Wall -Wextra
+  //(possible -Werror?) while complaining about fcntl which works!
   int fd = open (s, O_RDWR | O_CREAT, 0666);
   printf("\nBTW; sizeof mystruct is: %u and fd is:%d", sizeof(struct flock), fd);
   if(fd <=0 ){
     printf("\nFailed to open file descriptor. Exiting.");
     return -1;
   }
-  //int fd2 = open (*s, O_RDWR | O_CREAT, 0666);
-  //printf("\nSecond fd is: %d", fd);
+  int fd2 = open (s, O_RDWR, 0666);
+  printf("\nSecond fd is: %d", fd);
   struct flock* flk = NULL;
   int i = 0;
   flk = acquireLock(fd);

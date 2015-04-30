@@ -23,12 +23,12 @@ void * thread_start (void *arg)
   };
   
   fd = open (FILENAME, O_RDWR | O_CREAT, 0666);
-  
+  printf("\nFD:%d", fd);
   for (i = 0; i < ITERATIONS; i++)
     {
       lck.l_type = F_WRLCK;
-      fcntl (fd, F_OFD_SETLKW, &lck);
-      
+      int r = fcntl (fd, F_OFD_SETLKW, &lck);
+      printf("\nfcntl acquire lock returned:%d", r);
       len = sprintf (buf, "%d: tid=%ld fd=%d\n", i, tid, fd);
       
       lseek (fd, 0, SEEK_END);
@@ -36,8 +36,8 @@ void * thread_start (void *arg)
       fsync (fd);
       
       lck.l_type = F_UNLCK;
-      fcntl (fd, F_OFD_SETLK, &lck);
-
+      r = fcntl (fd, F_OFD_SETLK, &lck);
+      printf("\nfcntl release lock returned:%d", r);
       /* sleep to ensure lock is yielded to another thread */
       usleep (1);
     }
