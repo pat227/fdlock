@@ -4,6 +4,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
-
-flock* acquireLock (int fd);
-void releaseLock(flock* lck, int fd);
+#include <pthread.h>
+#define FILENAME        "foo"
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+struct flock* acquireLock (int fd);
+void releaseLock(struct flock* lck, int fd);

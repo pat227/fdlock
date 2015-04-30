@@ -1,10 +1,3 @@
-#define _GNU_SOURCE
-#include <stdlib.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include "lib_openfd_lock.h"
 
 int main(int argc, char** args){
@@ -13,19 +6,30 @@ int main(int argc, char** args){
     return 1;
   }
   printf("\nTesting shared library linkage, ctypes, and open fd locks.");
-  char* s = atoi(args[1]);
-  
-  printf("\nMaking struct by ref to ptr");
-  printf("\nBTW; sizeof mystruct is: %u", sizeof(flock));
-  flock * flk = NULL;
-
-  flk = acquireLock(flk);
+  char* s = args[1];
+  truncate (*s, 0);
+  char buf[256];
+  int fd = open (s, O_RDWR | O_CREAT, 0666);
+  printf("\nBTW; sizeof mystruct is: %u and fd is:%d", sizeof(struct flock), fd);
+  if(fd <=0 ){
+    printf("\nFailed to open file descriptor. Exiting.");
+    return -1;
+  }
+  //int fd2 = open (*s, O_RDWR | O_CREAT, 0666);
+  //printf("\nSecond fd is: %d", fd);
+  struct flock* flk = NULL;
+  int i = 0;
+  flk = acquireLock(fd);
   if(i != 0){
     printf("\nError--exiting");
     exit(1);
   }
+  int len = sprintf (buf, "fd=%d\n", fd);
+  lseek (fd, 0, SEEK_END);
+  write (fd, buf, len);
+  fsync (fd);
   printf("\nAcquired lock in main...will now release it.");
-  releaseLock(flk);
+  releaseLock(flk, fd);
   printf("\n");
   return 0;
 }
