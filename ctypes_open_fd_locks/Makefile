@@ -13,4 +13,4 @@ main:	main.o lib_openfd_lock.so.0
 lib_openfd_ctypes.cmo:	lib_openfd_ctypes.ml
 	ocamlfind ocamlc -g -c -thread -package core,ctypes lib_openfd_ctypes.ml
 testml_target:	testml.ml lib_openfd_ctypes.cmo
-	ocmalfind ocamlc -g -thread -package core,ctypes testml.ml
+	ocmalfind ocamlc -g -thread -package core,async,ctypes testml.ml

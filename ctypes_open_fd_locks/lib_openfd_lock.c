@@ -17,14 +17,18 @@ struct flock* acquireLock (int fd)
   memset(((void*)flp),'\0',sizeof(struct flock));
   flp->l_whence = SEEK_SET;
   flp->l_start = 0;
-  flp->l_len = 1;
+  //in future can support byte range locking here; zero indicates lock entire
+  //file; else x number bytes
+  flp->l_len = 0;
   flp->l_type = F_WRLCK;
-  //fd = open (*arg, O_RDWR | O_CREAT, 0666);
+  //F_OFD_SETLKW is just like F_OFD_SETLK but blocks until request can be
+  //completed instead of returning immediately with success or failure
   int r = fcntl (fd, F_OFD_SETLKW, flp);
   printf ("\nAcquired lock? fcntl returned:%d", r);
-  if(r  == -1){
+  if(r!=0){
     //    int errsv = errno;
     printf ("\nFailed to acquire lock.");
+    return NULL;
   }
   return flp;
 }
