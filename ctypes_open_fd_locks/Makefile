@@ -13,6 +13,6 @@ main:	main.o lib_openfd_lock.so.0
 lib_openfd_ctypes.cmo:	lib_openfd_ctypes.ml
 	ocamlfind ocamlc -g -c -thread -principal -package core,ctypes,ctypes.foreign lib_openfd_ctypes.ml
 testml.o:	testml.ml 
-	ocamlfind ocamlc -g -c -thread -principal -package core,async,async_kernel,async_extra,ctypes,ctypes.foreign testml.ml -o testml.o
+	ocamlfind ocamlc -g -c -thread -principal -package core,parmap,ctypes,ctypes.foreign testml.ml -o testml.o
 tests:	testml.o lib_openfd_ctypes.cmo
-	ocamlfind ocamlc -g -thread -principal -package core,async,async_kernel,async_extra,ctypes,ctypes.foreign lib_openfd_ctypes.o testml.o
+	ocamlfind ocamlc -g -thread -principal -package core,parmap,ctypes,ctypes.foreign lib_openfd_ctypes.o testml.o
