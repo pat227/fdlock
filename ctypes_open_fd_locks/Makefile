@@ -1,7 +1,7 @@
 default:	all
 clean:
 	rm *.o *.so* *.cmi *.cmo
-all:	lib_openfd_lock.o lib_openfd_lock.so.0 main.o main lib_openfd_ctypes.cmo
+all:	lib_openfd_lock.o lib_openfd_lock.so.0 main.o main lib_openfd_ctypes.cmo tests
 lib_openfd_lock.o:	lib_openfd_lock.c
 	gcc -isystem /usr/include/asm-generic -pthread -fPIC -g -c -fvisibility=default -rdynamic -Werror -Wextra -lm lib_openfd_lock.c -olib_openfd_lock.o
 lib_openfd_lock.so.0:	lib_openfd_lock.o
@@ -11,6 +11,8 @@ main.o:	test_lib.c
 main:	main.o lib_openfd_lock.so.0
 	gcc -isystem /usr/include/asm-generic -pthread -g -Wextra -Werror -ohelloworld main.o -L./ lib_openfd_lock.so.0 -lm -Wl,-rpath=./
 lib_openfd_ctypes.cmo:	lib_openfd_ctypes.ml
-	ocamlfind ocamlc -g -c -thread -package core,ctypes lib_openfd_ctypes.ml
-testml_target:	testml.ml lib_openfd_ctypes.cmo
-	ocmalfind ocamlc -g -thread -package core,async,ctypes testml.ml
+	ocamlfind ocamlc -g -c -thread -principal -package core,ctypes,ctypes.foreign lib_openfd_ctypes.ml
+testml.o:	testml.ml 
+	ocamlfind ocamlc -g -c -thread -principal -package core,async,async_kernel,async_extra,ctypes,ctypes.foreign testml.ml -o testml.o
+tests:	testml.o lib_openfd_ctypes.cmo
+	ocamlfind ocamlc -g -thread -principal -package core,async,async_kernel,async_extra,ctypes,ctypes.foreign lib_openfd_ctypes.o testml.o

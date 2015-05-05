@@ -1,7 +1,7 @@
 module OpenFDLocks = struct
-  open Ctypes;;
   open Unsigned;;
   open Signed;;
+  open Ctypes;;
   type flock64;;
   let flock64 : flock64 structure typ = structure "flock64";;
   let l_type = field flock64 "l_type" short;;
