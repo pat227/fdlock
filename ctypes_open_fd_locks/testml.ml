@@ -6,9 +6,9 @@ so we have > 1 thread contending for lock on > 1 cores.
 open Async.Std;;
 open Async_kernel;;
 *)
-open Lib_openfd_ctypes;;
 open Core.Std.Unix;;
-module FDL = OpenFDLocks;;
+(*open Openfdlocks;;*)
+module FDL = Openfdlocks.OpenFDLocks;;
 module Testml = struct
   let filename = "foo";;
   let exclusive_write i (fd:Core.Std.Unix.File_descr.t) =
@@ -35,6 +35,6 @@ module Testml = struct
       (empty)
       (fun () -> (exec ()));;
 
-  let () = Command.run command;;
+    let () = Command.run command;;
 end
 		  
