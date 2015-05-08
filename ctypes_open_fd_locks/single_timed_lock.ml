@@ -11,14 +11,13 @@ module FDL = Openfdlocks.OpenFDLocks;;
 module Single_Timed_Lock = struct
   let exclusive_hold (fd:Core.Std.Unix.File_descr.t) =
     let r = FDL.acquireLock (Core.Std.Unix.File_descr.to_int fd) in
-    (*This if condition is wrong...fails for some reason...this WORKS without if*)
-    (*if ((Ctypes.ptr_compare (Ctypes.to_voidp r)(Ctypes.to_voidp Ctypes.null)) = 0) then*)
+    if ((Ctypes.ptr_compare (Ctypes.to_voidp r)(Ctypes.to_voidp Ctypes.null)) <> 0) then
       let sp = Core.Std.Time.Span.of_int_sec 10 in
       let _ = Core.Std.Time.pause sp in 
       let _ = FDL.releaseLock r (Core.Std.Unix.File_descr.to_int fd) in ()
-    (*else
+    else
       let p = string_of_int (Core.Std.Pid.to_int (getpid ())) in
-      printf "\nError. Call to acquire lock failed in thread %s" p;;*)
+      printf "\nError. Call to acquire lock failed in thread %s" p;;
 
   let exec ~arg =
     let _  = with_file ~perm:0o600 ~mode:[O_CREAT;O_RDWR] arg ~f:(exclusive_hold) in ();;
