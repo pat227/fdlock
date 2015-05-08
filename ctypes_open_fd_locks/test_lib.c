@@ -20,12 +20,13 @@ int main(int argc, char** args){
   int fd2 = open (s, O_RDWR, 0666);
   printf("\nSecond fd is: %d", fd);
   struct flock* flk = NULL;
-  int i = 0;
+  //int i = 0;
   flk = acquireLock(fd);
-  if(i != 0){
-    printf("\nError--exiting");
-    exit(1);
-  }
+  printf("Main: flk address:%x", flk);
+  //if(i != 0){
+  //  printf("\nError--exiting");
+  //  exit(1);
+  //}
   int len = sprintf (buf, "fd=%d\n", fd);
   lseek (fd, 0, SEEK_END);
   write (fd, buf, len);

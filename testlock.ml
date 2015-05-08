@@ -26,7 +26,7 @@ module TestLock = struct
        +> flag "-lease-seconds" (optional int) ~doc:("Optional: the lease time of each lock beyond which we" ^
 						       " can assume the lock is free. Assumed to be infinite if not specified.")
       )
-      (fun arg1 arg2 () -> (exec ~arg1 ~arg2))
+      (fun arg1 arg2 () -> (exec ~arg1 ~arg2));;
       
-  let () = Command.run command
+  let () = Command.run command;;
 end 
