@@ -1,6 +1,6 @@
 default:	all
 clean:
-	rm *.o *.so* *.cmi *.cmo *.annot tests helloworld
+	rm *.o *.so* *.cmi *.cmo *.annot tests helloworld timedlock unit_tests
 all:	lib_openfd_lock.o lib_openfd_lock.so.0 lib_openfd_lock.so main.o main tests single_timed_lock unit_test
 lib_openfd_lock.o:	lib_openfd_lock.c
 	gcc -isystem /usr/include/asm-generic -isystem /user/include -pthread -fPIC -g -c -fvisibility=default -rdynamic -Werror -Wextra -lm lib_openfd_lock.c -olib_openfd_lock.o
@@ -27,6 +27,6 @@ single_timed_lock.cmo:	single_timed_lock.ml
 single_timed_lock.cmi:	single_timed_lock.ml
 	ocamlfind ocamlc -g -c -thread -principal -package core,ctypes,ctypes.foreign single_timed_lock.mli
 single_timed_lock:	single_timed_lock.cmi single_timed_lock.cmo
-	ocamlfind ocamlc -g -thread -principal -linkpkg -package core,ctypes,ctypes.foreign openfdlocks.mli openfdlocks.cmo single_timed_lock.cmo
-unit_test:	unit_test.ml
-	ocamlfind ocamlc -g -thread -principal -linkpkg -package core,ctypes,ctypes.foreign,parmap unit_test.ml
+	ocamlfind ocamlc -g -thread -principal -linkpkg -package core,ctypes,ctypes.foreign openfdlocks.mli openfdlocks.cmo single_timed_lock.cmo -o timedlock
+unit_test:	unit_test.ml openfdlocks.cmo
+	ocamlfind ocamlc -g -thread -principal -linkpkg -package core,ctypes,ctypes.foreign,parmap,pcre openfdlocks.cmo unit_test.ml -o unit_tests
