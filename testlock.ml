@@ -1,6 +1,5 @@
 open Core.Std
 open Flock
-open Flock_t
 module F = Flock
 module TestLock = struct
   let exec ~arg1 ~(arg2:int option) =
