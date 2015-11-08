@@ -5,9 +5,6 @@ unique file on the same fs (e.g., incorporating hostname and pid), use link(2) t
 make a link to the lockfile and use stat(2) on the unique file to check if its 
 link count has increased to 2. Do not use the return value of the link() call.
  *)
-(**========================TODO==================
-Replace use of Flock_t and atdgen with ppx_deriving_yojson ppx extension.
- *)
 module Flock = struct
   (*The status field is misleading since will only be Locked if present on disk, 
     else file is deleted upon release. *)

@@ -1,6 +1,0 @@
-type t = { pid:int;
-       	   localhostname:string;
-       	   acquired_dt:string;
-	   path:string;
-	   status:string
-	   }
